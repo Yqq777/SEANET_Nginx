@@ -8,6 +8,8 @@
 
 **Nginx** 作为一个基于 C 实现的高性能 Web 服务器，可以通过系列算法解决上述的负载均衡问题。并且由于它具有高并发、高可靠性、高扩展性、开源等特点，成为开发人员常用的**反向代理工具**。
 
+
+
 ## 1.2 为什么选择Nginx
 
 Nginx具有以下特点：
@@ -42,6 +44,8 @@ BSD许可协议（*BSD开源协议是一个给予使用者很大自由的协议�
 
 当然，选择Nginx的核心理由还是它能在支持高并发请求的同时保持高效的服务。
 
+
+
 ## 1.3 准备工作
 
 ### 1.3.1 Linux操作系统
@@ -53,6 +57,8 @@ BSD许可协议（*BSD开源协议是一个给予使用者很大自由的协议�
 ![image-20230304192511769](D:\zhuomian\Typora_note\image-20230304192511769.png)
 
 本机内核版本是4.15.0，符合要求。
+
+
 
 ### 1.3.2 使用Nginx的必备软件
 
@@ -90,6 +96,8 @@ apt-get install zlib1g zlib1g-dev
 apt-get install openssl openssl-dev
 ```
 
+
+
 ### 1.3.3 磁盘目录
 
 要是用Nginx，还需要在Linux文件系统上准备以下目录
@@ -110,11 +118,15 @@ apt-get install openssl openssl-dev
 
 日志文件通常会比较大，当研究Nginx的底层架构时，需要打开debug级别的日志，这 个级别的日志非常详细，会导致日志文件的大小增长得极快，需要预先分配一个拥有更大磁盘空间的目录。
 
+
+
 ### 1.3.4 获取Nginx源码
 
 可以在Nginx官方获取源码包，将下载的nginx源码压缩包放置到准备好的Nginx源代码目录中，然后解压。
 
 ![image-20230304193816409](D:\zhuomian\Typora_note\image-20230304193816409.png)
+
+
 
 ## 1.4 编译安装Nginx
 
@@ -131,6 +143,8 @@ configure命令做了大量的“幕后”工作，包括检测操作系统内�
 安装成功后，打开网页，输入ip地址，就可以看到：
 
 ![image-20230304201641148](D:\zhuomian\Typora_note\image-20230304201641148.png)
+
+
 
 # 第2章 Nginx的配置
 
@@ -149,6 +163,8 @@ Nginx有着许多的官方模块和第三方模块，这些已有的模块可以
 ![image-20230307203152510](D:\zhuomian\Typora_note\image-20230307203152510.png)
 
 ![image-20230307202928112](D:\zhuomian\Typora_note\image-20230307202928112.png)
+
+
 
 ## 2.2 Nginx配置的通用语法
 
@@ -182,6 +198,8 @@ Nginx的配置文件其实是一个普通的文本文件。最基本的配置项
 log_format main '$remote_addr - $remote_user [$time_local] "$request" ';
 ```
 
+
+
 ### 2.2.2 配置项的注释
 
 如果有一个配置项暂时需要注释掉，可以用“#”注释掉这一行。例如：
@@ -189,6 +207,8 @@ log_format main '$remote_addr - $remote_user [$time_local] "$request" ';
 ```nginx
 #pid logs/nginx.pid;
 ```
+
+
 
 ### 2.2.3 配置项的单位
 
@@ -232,6 +252,8 @@ proxy_read_timeout 600;
 client_body_timeout 2m;
 ```
 
+
+
 ### 2.2.4 在配置中使用变量
 
 有些模块允许在配置项中使用变量，例如：
@@ -246,9 +268,11 @@ log_format main '$remote_addr - $remote_user [$time_local] "$request" '
 
 - 需要注意，这种变量只有少数模块支持，不是通用的。
 
-事实上，在执行configure命令时（安装Nginx时），已经将许多模块编译进Nginx中了，但是否启用一般取决于配置文件中相应的配置项。每个Nginx模块都有自己感兴趣的配置项，大部分模块都必须在nginx.conf中读取某个配置项后才会在运行时启用。
+- 事实上，在执行configure命令时（安装Nginx时），已经将许多模块编译进Nginx中了，但是否启用一般取决于配置文件中相应的配置项。每个Nginx模块都有自己感兴趣的配置项，大部分模块都必须在nginx.conf中读取某个配置项后才会在运行时启用。
 
 例如，当配置http..这个配置项时，ngx_http_module模块才会启动，其他依赖这个模块的模块也会正常使用。
+
+
 
 ## 2.3 Nginx服务的基本配置
 
@@ -261,11 +285,11 @@ Nginx在运行时，必须加载几个核心模块和一个事件类模块。这
 - 优化性能的配置项。
 - 事件类的配置项（有些事件类配置项归纳到优化性能类，这是因为它们虽然也属于 events{}块，但作用是优化性能）。
 
+
+
 ### 2.3.1 用于调试进程和定位问题的配置项
 
 先来看一下用于调试进程、定位问题的配置项，如下所示：
-
----
 
 （1）是否以守护进程方式运行Nginx
 
@@ -276,16 +300,12 @@ Nginx在运行时，必须加载几个核心模块和一个事件类模块。这
 
 守护进程（daemon）是脱离终端并且在后台运行的进程。它脱离终端是为了避免进程执行过程中的信息在任何终端上显示，这样一来，进程也不会被任何终端所产生的信息所打断。Nginx毫无疑问是一个需要以守护进程方式运行的服务，因此，默认都是以这种方式运行的。
 
----
-
 （2）是否以master/worker方式工作
 
 ```
 语法：master_process on|off;
 默认：master_process on;
 ```
-
----
 
 （3）error日志的设置
 
@@ -300,8 +320,6 @@ error日志是定位Nginx问题的最佳工具，我们可以根据自己的需�
 
 - level是日志的输出级别，取值范围是debug、info、notice、warn、error、crit、alert、 emerg，从左至右级别依次增大。当设定为一个级别时，大于或等于该级别的日志都会被输出到/path/file文件中，小于该级别的日志则不会输出。（如果设定的日志级别是debug，则会输出所有的日志，这样数据量会很大）
 
----
-
 （4）是否处理几个特殊的调试点
 
 ```
@@ -311,8 +329,6 @@ error日志是定位Nginx问题的最佳工具，我们可以根据自己的需�
 如果设置了debug_points为stop，那么Nginx的代码执行到这些调试点时就会发出SIGSTOP信号以用于调试。如果debug_points设置为abort，则会产生一个coredump文件，可以使用gdb来查看Nginx当时的各种信息。
 
 通常不会使用这个配置项。
-
----
 
 （5）仅对指定的客户端输出debug级别的日志
 
@@ -331,8 +347,6 @@ debug_connection 10.224.57.0/24;
 
 这样，仅仅来自以上IP地址的请求才会输出debug级别的日志，其他请求仍然沿用error_log中配置的日志级别。
 
----
-
 （6）限制coredump核心转储文件的大小
 
 ```
@@ -345,13 +359,11 @@ debug_connection 10.224.57.0/24;
 
 我们还可以通过working_directory path来指定coredump文件放置的目录。
 
----
+
 
 ### 2.3.2 正常运行的配置项
 
 正常运行的配置项如下：
-
----
 
 （1）定义环境变量
 
@@ -365,8 +377,6 @@ debug_connection 10.224.57.0/24;
 env TESTPATH=/tmp/;
 ```
 
----
-
 （2）嵌入其他配置文件
 
 ```
@@ -374,8 +384,6 @@ env TESTPATH=/tmp/;
 ```
 
 include配置项可以将其他配置文件嵌入到当前的nginx.conf文件中，
-
----
 
 （3）pid文件的路径
 
@@ -386,8 +394,6 @@ include配置项可以将其他配置文件嵌入到当前的nginx.conf文件中
 
 保存master进程ID的pid文件存放路径。默认与configure执行时的参数“--pid-path”所指定的路径是相同的，也可以随时修改，但应确保Nginx有权在相应的目标中创建pid文件， 该文件直接影响Nginx是否可以运行。
 
----
-
 （4）Nginx worker进程运行的用户及用户组
 
 ```
@@ -397,8 +403,6 @@ include配置项可以将其他配置文件嵌入到当前的nginx.conf文件中
 
 user用于设置master进程启动后，fork出的worker进程运行在哪个用户和用户组下。当按照“user username;”设置时，用户组名与用户名相同。
 
----
-
 （5）指定Nginx worker进程可以打开的最大句柄描述符个数
 
 ```
@@ -406,8 +410,6 @@ user用于设置master进程启动后，fork出的worker进程运行在哪个用
 ```
 
 设置一个worker进程可以打开的最大文件句柄数。
-
----
 
 （6）限制信号队列
 
@@ -417,13 +419,11 @@ user用于设置master进程启动后，fork出的worker进程运行在哪个用
 
 设置每个用户发往Nginx的信号队列的大小，超出的信息会丢掉。
 
----
+
 
 ### 2.3.3 优化性能的配置项
 
 有关于优化性能的配置项如下：
-
----
 
 （1）Nginx worker进程个数
 
@@ -438,8 +438,6 @@ user用于设置master进程启动后，fork出的worker进程运行在哪个用
 
 如果worker进程的数量多于CPU内核数，会增大进程间切换带来的消耗（Linux是抢占式内核）。一般情况下，用户要配置与CPU内核数相等的worker进程，并且使用下面的worker_cpu_affinity配置来绑定CPU内核。
 
----
-
 （2）绑定Nginx worker进程到指定的CPU内核
 
 ```
@@ -448,8 +446,6 @@ user用于设置master进程启动后，fork出的worker进程运行在哪个用
 
 为什么要绑定worker进程到指定的CPU内核呢？假定每一个worker进程都是非常繁忙的，如果多个worker进程都在抢同一个CPU，那么这就会出现同步问题。反之，如果每一 个worker进程都独享一个CPU，就在内核的调度策略上实现了完全的并发。
 
----
-
 （3）SSL硬件加速
 
 ```
@@ -457,8 +453,6 @@ user用于设置master进程启动后，fork出的worker进程运行在哪个用
 ```
 
 如果服务器上有SSL硬件加速设备，那么就可以进行配置以加快SSL协议的处理速度。
-
----
 
 （4）系统调用gettimeofday的执行频率
 
@@ -476,8 +470,6 @@ user用于设置master进程启动后，fork出的worker进程运行在哪个用
 
 但在目前的大多数内核中，仅仅对共享内存页中的数据做访问，并不是通常的系统调用，代价并不大，一般不必使用这个配置。
 
----
-
 （5）Nginx worker进程优先级设置
 
 ```
@@ -491,13 +483,11 @@ user用于设置master进程启动后，fork出的worker进程运行在哪个用
 
 nice值是进程的静态优先级，它的取值范围是–20~+19，–20是最高优先 级，+19是最低优先级。因此，如果用户希望Nginx占有更多的系统资源，那么可以把nice值配置得更小一些，但不建议比内核进程的nice值（通常为–5）还要小。
 
----
+
 
 ### 2.3.4 事件类配置项
 
 下面就是事件类配置项的相关介绍：
-
----
 
 （1）是否打开accept锁
 
@@ -510,8 +500,6 @@ accept_mutex是Nginx的负载均衡锁，这个锁可以让多个worker进程轮
 
 accept锁是默认打开的，如果关闭它，建立TCP连接耗时会短，但负载会不均衡。
 
----
-
 （2）lock文件的路径
 
 ```
@@ -520,8 +508,6 @@ accept锁是默认打开的，如果关闭它，建立TCP连接耗时会短，�
 ```
 
 accept锁可能需要这个lock文件，如果accept锁关闭，lock_file配置完全不生效。
-
----
 
 （3）使用accept锁后到真正建立连接之间的延迟时间
 
@@ -532,8 +518,6 @@ accept锁可能需要这个lock文件，如果accept锁关闭，lock_file配置�
 
 在使用accept锁后，同一时间只有一个worker进程能够取到accept锁。这个accept锁不是阻塞锁，如果取不到会立刻返回。如果有一个worker进程试图取accept锁而没有取到，它至少要等accept_mutex_delay定义的时间间隔后才能再次取锁。
 
----
-
 （4）批量建立新连接
 
 ```
@@ -542,8 +526,6 @@ accept锁可能需要这个lock文件，如果accept锁关闭，lock_file配置�
 ```
 
 当事件模型通知有新连接时，尽可能地对本次调度中客户端发起的所有TCP请求都建立连接。
-
----
 
 （5）选择事件模型
 
@@ -554,8 +536,6 @@ accept锁可能需要这个lock文件，如果accept锁关闭，lock_file配置�
 
 对于Linux操作系统来说，可供选择的事件驱动模型有poll、select、epoll三种。epoll当然是性能最高的一种。
 
----
-
 （6）每个worker的最大连接数
 
 ```
@@ -564,7 +544,7 @@ accept锁可能需要这个lock文件，如果accept锁关闭，lock_file配置�
 
 定义每个worker进程可以同时处理的最大连接数。
 
----
+
 
 ## 2.4 用HTTP核心模块配置一个静态web服务器
 
@@ -576,11 +556,11 @@ accept锁可能需要这个lock文件，如果accept锁关闭，lock_file配置�
 
 Nginx为配置一个完整的静态Web服务器提供了非常多的功能，下面会把这些配置项分为以下8类进行详述：虚拟主机与请求的分发、文件路径的定义、内存及磁盘资源的分配、网络连接的设置、MIME类型的设置、对客户端请求的限制、文件操作的优化、对客户端请求的特殊处理。
 
+
+
 ### 2.4.1 虚拟主机与请求的分发
 
 因为IP地址的数量限制，会存在许多个主机域名对应的一个IP地址的情况。这时在nginx.conf中就可以按照server_name（对应用户请求中的主机域名）并通过server块来定义虚拟主机，每个server块就是一个虚拟主机，它只处理与之相对应的主机域名请求。 这样，一台服务器上的Nginx就能以不同的方式处理访问不同主机域名的HTTP请求了。
-
----
 
 （1）监听端口
 
@@ -616,8 +596,6 @@ listen 127.0.0.1 default_server accept_filter=dataready backlog=1024;
 - bind：绑定当前端口/地址对，如127.0.0.1:8000。只有同时对一个端口监听多个地址时才会生效。
 - ·ssl：在当前监听的端口上建立的连接必须基于SSL协议。
 
----
-
 （2）主机名称
 
 ```
@@ -627,8 +605,6 @@ listen 127.0.0.1 default_server accept_filter=dataready backlog=1024;
 ```
 
 在开始处理一个HTTP请求时，Nginx会取出header头中的Host，与每个server中的server_name进行匹配，以此决定到底由哪一个server块来处理这个请求。
-
----
 
 （3）server_names_hash_bucket_size
 
@@ -640,8 +616,6 @@ listen 127.0.0.1 default_server accept_filter=dataready backlog=1024;
 
 为了提高快速寻找到相应server name的能力，Nginx使用散列表来存储server name。 server_names_hash_bucket_size设置了每个散列桶占用的内存大小。
 
----
-
 （4）重定向主机名称的处理
 
 ```
@@ -651,8 +625,6 @@ listen 127.0.0.1 default_server accept_filter=dataready backlog=1024;
 ```
 
 该配置需要配合server_name使用。在使用on打开时，表示在重定向请求时会使用 server_name里配置的第一个主机名代替原先请求中的Host头部，而使用off关闭时，表示在重定向请求时使用请求本身的Host头部。
-
----
 
 （5）location
 
@@ -669,13 +641,11 @@ location会尝试根据用户请求中的URI来匹配上面的/uri表达式，�
 - ^~表示匹配URI时只需要其前半部分与uri参数匹配即可。
 - @表示仅用于Nginx服务内部请求之间的重定向，带有@的location不直接处理用户请求。
 
----
+
 
 ### 2.4.2 文件路径的定义
 
 文件路径的定义配置项：
-
----
 
 （1）以root方式设置资源路径
 
@@ -694,8 +664,6 @@ root /opt/web/html/;
 ```
 
 在上面的配置中，如果有一个请求的URI是/download/index/test.html，那么Web服务器将会返回服务器上/opt/web/html/download/index/test.html文件的内容。
-
----
 
 （2）以alias方式设置资源路径
 
@@ -724,8 +692,6 @@ root /usr/local/nginx/;
 
 使用alias时，在URI向实际文件路径的映射过程中，已经把location后配置的/conf这部分字符串丢弃掉，因此，/conf/nginx.conf请求将根据alias path映射为path/nginx.conf。
 
----
-
 （3）访问首页
 
 ```
@@ -746,8 +712,6 @@ index /index.html /html/index.php /index.php;
 ```
 
 接收到请求后，Nginx首先会尝试访问path/index.php文件，如果可以访问，就直接返回文件内容结束请求，否则再试图返回path/html/index.php文件的内容，依此类推。
-
----
 
 （4）根据HTTP返回码重定向页面
 
@@ -778,8 +742,6 @@ proxy_pass http://backend
 
 这样，返回404的请求会被反向代理到http://backend中处理。
 
----
-
 （5）是否允许递归使用error_page
 
 ```
@@ -789,8 +751,6 @@ proxy_pass http://backend
 ```
 
 确定是否允许递归地定义error_page。
-
----
 
 （6）try_files
 
@@ -811,13 +771,11 @@ proxy_pass http://backend
 
 这段代码表示如果前面的路径，如/system/maintenance.html等，都找不到，就会反向代理到http://backend服务上。
 
----
+
 
 ### 2.4.3 内存及磁盘资源的分配
 
 下面介绍处理请求时内存、磁盘资源分配的配置项：
-
----
 
 （1）HTTP包体只存储到磁盘文件中
 
@@ -829,8 +787,6 @@ proxy_pass http://backend
 
 当值为非off时，用户请求中的HTTP包体一律存储到磁盘文件中，即使只有0字节也会存储为文件。当请求结束时，如果配置为on，则这个文件不会被删除（该配置一般用于调试、定位问题），但如果配置为clean，则会删除该文件。
 
----
-
 （2）HTTP包体写入到一个内存buffer中
 
 ```
@@ -840,8 +796,6 @@ proxy_pass http://backend
 ```
 
 用户请求中的HTTP包体一律存储到内存buffer中。如果包体大小超过了client_body_buffer_size设置的值，还是会写入磁盘文件。
-
----
 
 （3）存储HTTP头部的内存buffer大小
 
@@ -855,8 +809,6 @@ proxy_pass http://backend
 
 有时，请求中的HTTP header部分可能会超过这个大小，这时large_client_header_buffers定义的buffer将会生效。
 
----
-
 （4）存储超大HTTP头部的内存buffer大小
 
 ```
@@ -866,8 +818,6 @@ proxy_pass http://backend
 ```
 
 large_client_header_buffers定义了Nginx接收一个超大HTTP头部请求的buffer个数和每个buffer的大小。如果HTTP请求行的大小超过上面的单个 buffer，则返回"Request URI too large"(414)。
-
----
 
 （5）存储HTTP包体的内存buffer大小
 
@@ -879,8 +829,6 @@ large_client_header_buffers定义了Nginx接收一个超大HTTP头部请求的bu
 
 定义了Nginx接收HTTP包体的内存缓冲区大小。HTTP包体会先接收到指定的这块缓存中，之后才决定是否写入磁盘。
 
----
-
 （6）HTTP包体的临时存放目录
 
 ```
@@ -891,8 +839,6 @@ large_client_header_buffers定义了Nginx接收一个超大HTTP头部请求的bu
 
 在接收HTTP包体时，如果包体的大小大于client_body_buffer_size，则会以一个递增的整数命名并存放到client_body_temp_path指定的目录中。
 
----
-
 （7）connection_pool_size
 
 ```
@@ -902,8 +848,6 @@ large_client_header_buffers定义了Nginx接收一个超大HTTP头部请求的bu
 ```
 
 Nginx对于每个建立成功的TCP连接会预先分配一个内存池，上面的size配置项将指定这个内存池的初始大小。
-
----
 
 （8）request_pool_size
 
@@ -917,13 +861,11 @@ Nginx开始处理HTTP请求时，将会为每个请求都分配一个内存池�
 
 TCP连接关闭时会销毁connection_pool_size指定的连接内存池，HTTP请求结束时会销毁request_pool_size指定的HTTP请求内存池，但它们的创建、销毁时间并不一致，因为一个TCP连接可能被复用于多个HTTP请求。
 
----
+
 
 ### 2.4.4 网络连接的设置
 
 网络连接的设置配置项：
-
----
 
 （1）读取HTTP头部的超时时间
 
@@ -935,8 +877,6 @@ TCP连接关闭时会销毁connection_pool_size指定的连接内存池，HTTP�
 
 客户端与服务器建立连接后将开始接收HTTP头部，在这个过程中，如果在一个时间间隔（超时时间）内没有读取到客户端发来的字节，则认为超时，并向客户端返回 408("Request timed out")响应。
 
----
-
 （2）读取HTTP包体的超时时间
 
 ```
@@ -947,8 +887,6 @@ TCP连接关闭时会销毁connection_pool_size指定的连接内存池，HTTP�
 
 与client_header_timeout类似。
 
----
-
 （3）发送响应的超时时间
 
 ```
@@ -958,8 +896,6 @@ TCP连接关闭时会销毁connection_pool_size指定的连接内存池，HTTP�
 ```
 
 这个超时时间是发送响应的超时时间，即Nginx服务器向客户端发送了数据包，但客户端一直没有去接收这个数据包。如果某个连接超过send_timeout定义的超时时间，那么Nginx将会关闭这个连接。
-
----
 
 （4）reset_timeout_connection
 
@@ -973,8 +909,6 @@ TCP连接关闭时会销毁connection_pool_size指定的连接内存池，HTTP�
 
 使用RST重置包关闭连接会带来一些问题，默认情况下不会开启。
 
----
-
 （5）lingering_close
 
 ```
@@ -984,8 +918,6 @@ TCP连接关闭时会销毁connection_pool_size指定的连接内存池，HTTP�
 ```
 
 该配置控制Nginx关闭用户连接的方式。always表示关闭用户连接前必须无条件地处理连接上所有用户发送的数据。off表示关闭连接时完全不管连接上是否已经有准备就绪的来自用户的数据。on是中间值，一般情况下在关闭连接前都会处理连接上的用户发送的数据，除了有些情况下在业务上认定这之后的数据是不必要的。
-
----
 
 （6）lingering_time
 
@@ -999,8 +931,6 @@ lingering_close启用后，这个配置项对于上传大文件很有用。
 
 当用户请求的Content-Length大于max_client_body_size配置时，Nginx服务会立刻向用户发送413（Request entity too large）响应。但是，很多客户端不管413返回值，仍然上传HTTP body，这时，经过了lingering_time设置的时间后，Nginx将不管用户是否仍在上传，都会把连接关闭掉。
 
----
-
 （7）lingering_timeout
 
 ```
@@ -1008,8 +938,6 @@ lingering_close启用后，这个配置项对于上传大文件很有用。
 默认：lingering_timeout 5s;
 配置块：http、server、location
 ```
-
----
 
 （8）对某些浏览器禁用keepalive功能
 
@@ -1021,8 +949,6 @@ lingering_close启用后，这个配置项对于上传大文件很有用。
 
 HTTP请求中的keepalive功能是为了让多个请求复用一个HTTP长连接，这个功能对服务器的性能提高是很有帮助的。但有些浏览器，如IE 6和Safari，它们对于使用keepalive功能的POST请求处理有功能性问题。
 
----
-
 （9）keepalive超时时间
 
 ```
@@ -1032,8 +958,6 @@ HTTP请求中的keepalive功能是为了让多个请求复用一个HTTP长连接
 ```
 
 一个keepalive连接在闲置超过一定时间后，服务器和浏览器都会去关闭这个连接。
-
----
 
 （10）一个keepalive长连接上允许承载的请求最大数
 
@@ -1045,8 +969,6 @@ HTTP请求中的keepalive功能是为了让多个请求复用一个HTTP长连接
 
 一个keepalive连接上默认最多只能发送100个请求。
 
----
-
 （11）tcp_nodelay
 
 ```
@@ -1057,13 +979,11 @@ HTTP请求中的keepalive功能是为了让多个请求复用一个HTTP长连接
 
 确定对keepalive连接是否使用TCP_NODELAY选项。
 
----
+
 
 ### 2.4.5 对客户端请求的限制
 
 对客户端请求的限制的配置项：
-
----
 
 （1）按HTTP方法名限制用户请求
 
@@ -1083,8 +1003,6 @@ deny all;
 
 上面这段代码表示的是禁止GET方法和HEAD方法，但其他HTTP方法是允许的。
 
----
-
 （2）HTTP请求包体的最大值
 
 ```
@@ -1095,8 +1013,6 @@ deny all;
 
 浏览器在发送含有较大HTTP包体的请求时，其头部会有一个Content-Length字段， client_max_body_size是用来限制Content-Length所示值的大小的。这个限制包体的配置非常有用处，因为不用等Nginx接收完所有的HTTP包体就可以告诉用户请求过大，就直接发送 413("Request Entity Too Large")响应给客户端。
 
----
-
 （3）对请求的限速
 
 ```
@@ -1106,8 +1022,6 @@ deny all;
 ```
 
 此配置是对客户端请求限制每秒传输的字节数。默认参数为0，表示不限速。
-
----
 
 （4）limit_rate_after
 
@@ -1124,13 +1038,11 @@ limit_rate_after 1m;
 limit_rate 100k;//传输长度超过1m后开始限速100k。
 ```
 
----
+
 
 ### 2.4.6 文件操作的优化
 
 文件操作的优化配置项：
-
----
 
 （1）sendfile系统调用
 
@@ -1141,8 +1053,6 @@ limit_rate 100k;//传输长度超过1m后开始限速100k。
 ```
 
 可以启用Linux上的sendfile系统调用来发送文件，它减少了内核态与用户态之间的两次内存复制，这样就会从磁盘中读取文件后直接在内核态发送到网卡设备，提高了发送文件的效率。
-
----
 
 （2）打开文件缓存
 
@@ -1170,8 +1080,6 @@ limit_rate 100k;//传输长度超过1m后开始限速100k。
 open_file_cache max=1000 inactive=20s;
 ```
 
----
-
 （3）是否缓存打开文件错误的信息
 
 ```
@@ -1181,8 +1089,6 @@ open_file_cache max=1000 inactive=20s;
 ```
 
 此配置项表示是否在文件缓存中缓存打开文件时出现的找不到路径、没有权限等错误信息。
-
----
 
 （4）不被淘汰的最小访问次数
 
@@ -1194,13 +1100,9 @@ open_file_cache max=1000 inactive=20s;
 
 它与open_file_cache中的inactive参数配合使用。如果在inactive指定的时间段内，访问次数超过了open_file_cache_min_uses指定的最小次数，那么将不会被淘汰出缓存。
 
----
-
 ### 2.4.7 对客户端请求的特殊处理
 
 客户端请求的特殊处理的配置项：
-
----
 
 （1）忽略不合法的HTTP头部
 
@@ -1212,8 +1114,6 @@ open_file_cache max=1000 inactive=20s;
 
 设置为off，当出现不合法的HTTP头部时，Nginx会拒绝服务，并直接向用户发送400（Bad Request）错误。如果将其设置为on，则会忽略此HTTP头部。
 
----
-
 （2）HTTP头部是否允许下划线
 
 ```
@@ -1223,8 +1123,6 @@ open_file_cache max=1000 inactive=20s;
 ```
 
 默认为off，表示HTTP头部的名称中不允许带（下划线）。
-
----
 
 （3）对If-Modified-Since头部的处理策略
 
@@ -1242,8 +1140,6 @@ open_file_cache max=1000 inactive=20s;
 - exact：将If-Modified-Since头部包含的时间与将要返回的文件上次修改的时间做精确比较，如果没有匹配上，则返回200和文件的实际内容，如果匹配上，则表示浏览器缓存的文件内容已经是最新的了，没有必要再返回文件从而浪费时间与带宽了，这时会返回 304 Not Modified，浏览器收到后会直接读取自己的本地缓存。
 - before：是比exact更宽松的比较。只要文件的上次修改时间等于或者早于用户请求中的If-Modified-Since头部的时间，就会向客户端返回304 Not Modified。
 
----
-
 （4）文件未找到时是否记录到error日志
 
 ```
@@ -1253,8 +1149,6 @@ open_file_cache max=1000 inactive=20s;
 ```
 
 此配置项表示当处理用户请求且需要访问文件时，如果没有找到文件，是否将错误日志记录到error.log文件中。这仅用于定位问题。
-
----
 
 （5）merge_slashes
 
@@ -1266,8 +1160,6 @@ open_file_cache max=1000 inactive=20s;
 
 此配置项表示是否合并相邻的“/”，例如，//test///a.txt，在配置为on时，会将其匹配为location/test/a.txt；如果配置为off，则不会匹配，URI将仍然是//test///a.txt。
 
----
-
 （6）DNS解析地址
 
 ```
@@ -1275,29 +1167,45 @@ open_file_cache max=1000 inactive=20s;
 配置块：http、server、location
 ```
 
-设置DNS名字解析服务器的地址
 
----
 
-（7）DNS解析的超时时间
+# 第3章 负载均衡模块
 
-```
-语法：resolver_timeout time;
-默认：resolver_timeout 30s;
-配置块：http、server、location
-```
+## 3.1 负载均衡原理
 
-此配置项表示DNS解析的超时时间。
+当Web服务器直接面向用户，往往要承载大量并发请求，单台服务器难以负荷，那么就需要使用多台Web服务器组成集群，前端使用Nginx负载均衡，将请求分散的打到后端服务器集群中，实现负载的分发。那么会大大提升系统的吞吐率、请求性能、高容灾。
 
----
+**集群的分类**：
 
-## 2.5 用HTTP proxy module 配置一个反向代理服务器
+- 负载均衡集群（Load Balancing clusters），简称LBC或者LB。
+- 高可用性集群（High-availability（HA）clusters），简称HAC。
+- 高性能计算集群（High-performance（HP）clusters），简称HPC。
+- 网格计算（Grid computing）集群。
 
-反向代理（reverse proxy）方式是指用代理服务器来接受Internet上的连接请求，然后将请求转发给内部网络中的上游服务器，并将从上游服务器上得到的结果返回给Internet 上请求连接的客户端，此时代理服务器对外的表现就是一个Web服务器。
+**负载均衡集群的作用：**
 
-充当反向代理服务器也是Nginx的一种常见用法（反向代理服务器必须能够处理大量并发请求）。
+- 分担用户访问请求及数据流量（负载均衡）。
+- 保持业务连续性，即7×24小时服务（高可用性）。
+- 应用于Web业务及数据库从库等服务器的业务。
+- 负载均衡集群典型的开源软件包括LVS、Nginx、Haproxy等。
 
-当客户端发来HTTP请求时，Nginx并不会立刻转发到上游服务器，而是先把用户的请求（包括HTTP包体）完整地接收到Nginx所在服务器的硬盘或者内存中，然后再向上游服务器发起连接，把缓存的客户端请求转发到上游服务器。而Squid等代理服务器则采用一边接收客户端请求，一边转发到上游服务器的方式。
+负载均衡可以分为硬件负载均衡和软件负载均衡，前者一般是专用的软件和硬件相结合的设施，设施商会提供完整成熟的处理方案，通常也会更加昂贵。软件的复杂均衡以Nginx占据绝大多数。
+
+客户端向反向代理发送请求，接着反向代理根据某种负载机制转发请求至目标服务器(这些服务器都运行着相同的应用)，并把获得的内容返回给客户端，代理请求可能根据配置被发往不同的目标服务器。
+
+**负载均衡能实现的应用场景一：四层负载均衡**：
+
+所谓四层负载均衡指的是OSI七层模型中的传输层，那么传输层Nginx已经能支持TCP/IP的控制，所以只需要对客户端的请求进行TCP/IP协议的包转发就可以实现负载均衡，那么它的好处是性能非常快、只需要底层进行应用处理，而不需要进行一些复杂的逻辑。
+
+**负载均衡能实现的应用场景二：七层负载均衡**：
+
+七层负载均衡它是在应用层，那么它可以完成很多应用方面的协议请求，比如常说的http应用的负载均衡，它可以实现http信息的改写、头信息的改写、安全应用规则控制、URL匹配规则控制、以及转发、rewrite等等的规则，所以在应用层的服务里面，可以做的内容就更多，那么Nginx则是一个典型的七层负载均衡SLB。
+
+**四层负载均衡与七层负载均衡区别**
+
+四层负载均衡数据包在底层就进行了分发，而七层负载均衡数据包则是在最顶层进行分发、由此可以看出，七层负载均衡效率没有四负载均衡高。
+
+但七层负载均衡更贴近于服务，如：http协议就是七层协议，可以用Nginx可以作会话保持，URL路径规则匹配、head头改写等等，这些是四层负载均衡无法实现的。
 
 Nginx的这种工作方式有什么优缺点呢？很明显，缺点是延长了一个请求的处理时间，并增加了用于缓存请求内容的内存和磁盘空间。而优点则是降低了上游服务器的负载，尽量把压力放在Nginx服务器上。
 
@@ -1309,11 +1217,17 @@ Squid等反向代理服务器在与客户端建立连接且还没有开始接收
 
 Nginx则不然，它在接收到完整的客户端请求（如1GB的文件）后，才会与上游服务器建立连接转发请求，由于是内网，所以这个转发过程会执行得很快。这样，一个客户端请求占用上游服务器的连接时间就会非常短，也就是说，Nginx的这种反向代理方案主要是为了降低上游服务器的并发压力。
 
-### 2.5.1 负载均衡的基本配置
 
-作为代理服务器，一般向上游服务器的请求要尽可能的分布到每一台上游服务器上。下面介绍**负载均衡**的配置项：
 
----
+##  3.2 Nginx负载均衡模块 ngx_http_upstream_module
+
+ngx_http_upstream_module模块用于定义可以被 proxy_pass、fastcgi_pass、uwsgi_pass、scgi_pass 以及memcached_pass 等指令引用的服务器群。
+
+对于常用的HTTP负载均衡，主要先定义一个upstream作为backend group，而后通过proxy_pass/fastcgi_pass等方式进行转发操作，其中fastcgi_pass几乎算是Nginx+PHP站点的标配。
+
+Nginx负载均衡也是一种代理，与Nginx代理不同地方在于，Nginx的一个location仅能代理一台服务器，而Nginx负载均衡则是将客户端请求代理转发至一组upstream虚拟服务池（对应于后端多个服务器，逻辑上的一组），即负载均衡能对物理主机进行逻辑上的捆绑
+
+ngx_http_upstream_module提供的常用配置指令：
 
 （1）upstream块
 
@@ -1337,8 +1251,6 @@ proxy_pass http://backend;
 }
 ```
 
----
-
 （2）server
 
 ```
@@ -1350,7 +1262,7 @@ server配置项指定了一台上游服务器的名字，这个名字可以是�
 
 - weight=number：设置向这台上游服务器转发的权重，默认为1。
 - max_fails=number：该选项与fail_timeout配合使用，指在fail_timeout时间段内，如果向当前的上游服务器转发失败次数超过number，则认为在当前的fail_timeout时间段内这台上游服务器不可用。max_fails默认为1，如果设置为0，则表示不检查失败次数。
-- ·fail_timeout=time：fail_timeout表示该时间段内转发失败多少次后就认为上游服务器暂时不可用，用于优化反向代理功能。fail_timeout默认为10秒。
+- fail_timeout=time：fail_timeout表示该时间段内转发失败多少次后就认为上游服务器暂时不可用，用于优化反向代理功能。fail_timeout默认为10秒。
 - down：表示所在的上游服务器永久下线，只在使用ip_hash配置项时才有用。
 - backup：在使用ip_hash配置项时它是无效的。它表示所在的上游服务器只是备份服务器，只有在所有的非备份上游服务器都失效后，才会向所在的上游服务器转发请求。
 
@@ -1363,8 +1275,6 @@ server 127.0.0.1:8080 max_fails=3 fail_timeout=30s;
 server unix:/tmp/backend3;
 }
 ```
-
----
 
 （3）ip_hash
 
@@ -1389,8 +1299,6 @@ server backend4.example.com;
 }
 ```
 
----
-
 （4）记录日志时支持的变量
 
 如果需要将负载均衡时的一些信息记录到access_log日志中，那么在定义日志格式时可以使用负载均衡功能提供的变量：
@@ -1413,13 +1321,11 @@ log_format up_head '$remote_addr - $remote_user [$time_local] $request '
 'upstream_http_content_type $upstream_http_content_type';
 ```
 
----
 
-### 2.5.2 反向代理的基本配置
+
+## 3.3 反向代理的基本配置
 
 反向代理的基本配置项：
-
----
 
 （1）proxy_pass
 
@@ -1441,8 +1347,6 @@ proxy_pass https://192.168.0.1
 proxy_set_header Host $host;
 ```
 
----
-
 （2）proxy_method
 
 ```
@@ -1458,8 +1362,6 @@ proxy_method POST;
 
 那么客户端发来的GET请求在转发时方法名也会改为POST。
 
----
-
 （3）proxy_hide_header
 
 ```
@@ -1471,8 +1373,6 @@ Nginx会将上游服务器的响应转发给客户端，但默认不会转发以
 
 使用proxy_hide_header后可以任意地指定哪些HTTP头部字段不能被转发。
 
----
-
 （4）proxy_pass_header
 
 ```
@@ -1481,8 +1381,6 @@ Nginx会将上游服务器的响应转发给客户端，但默认不会转发以
 ```
 
 与proxy_hide_header功能相反，proxy_pass_header会将原来禁止转发的header设置为允许转发。
-
----
 
 （5）proxy_pass_request_body
 
@@ -1494,8 +1392,6 @@ Nginx会将上游服务器的响应转发给客户端，但默认不会转发以
 
 作用为确定是否向上游服务器发送HTTP包体部分。
 
----
-
 （6）proxy_pass_request_headers
 
 ```
@@ -1505,8 +1401,6 @@ Nginx会将上游服务器的响应转发给客户端，但默认不会转发以
 ```
 
 作用为确定是否转发HTTP头部。
-
----
 
 （7）proxy_redirect
 
@@ -1527,8 +1421,6 @@ http://frontend/one/;
 
 使用off参数时，将使location或者refresh字段维持不变。
 
----
-
 （8）proxy_next_upstream
 
 ```
@@ -1541,7 +1433,7 @@ http://frontend/one/;
 
 上游服务器一旦开始发送应答，Nginx反向代理服务器会立刻把应答包转发给客户端。因此，一旦Nginx开始向客户端发送响应包，之后的过程中若出现错误也是不允许换下一台上游服务器继续处理的。
 
-proxy_next_upstream的参数用来说明在哪些情 况下会继续选择下一台上游服务器转发请求：
+proxy_next_upstream的参数用来说明在哪些情况下会继续选择下一台上游服务器转发请求：
 
 - error：当向上游服务器发起连接、发送请求、读取响应时出错。
 - timeout：发送请求或读取响应时发生超时。
@@ -1552,11 +1444,6 @@ proxy_next_upstream的参数用来说明在哪些情 况下会继续选择下一
 - http_504：上游服务器返回的HTTP响应码是504。
 - http_404：上游服务器返回的HTTP响应码是404。
 - off：关闭proxy_next_upstream功能，出错就选择另一台上游服务器再次转发。
-
-
-
-
-
 
 
 
