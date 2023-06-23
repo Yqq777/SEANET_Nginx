@@ -1,8 +1,8 @@
-## Events
+# Events
 
 ---
 
-### Event
+## Event
 
 ***
 
@@ -28,16 +28,19 @@ nginx中的事件对象 **ngx_event_t** 提供了一种通知特定事件已经�
 
 nginx 刚启动时，在 wait for events connections 处打开80或443端口，等待新的事件进来，比如新的客户端连接请求（epoll wait），这时 nginx 处于 sleep 状态。当操作系统接收到了一个建立TCP连接的握手报文并且处理完握手流程之后，操作系统就会通知 epoll wait ，告诉他现在可以往下走了，同时唤醒worker进程。处理完一个事件之后，操作系统会把他准备好的事件放到事件队列中，从这个事件队列可以获取到一个要处理的事件，从队列中取出来，然后再开始处理事件。
 
-![nginx_event_loop.png](./images/nginx_event_loop.png "工作进程监听并处理来自内核的事件")
+<img src="./images/nginx_event_loop.png" width = "500" height = "400" alt="nginx_event_loop.png" align=center />
 
 
-### I/O events
+
+
+
+## I/O events
 
 ---
 
 通过调用 **ngx_get_connection()** 函数获得的每个连接都有两个附加事件：**c->read** 和 **c->write** ，它们用于接收套接字已经准备好进行读写的通知。所有这些事件都在 Edge-Triggered 模式下运行，这意味着它们只在套接字状态变更时触发通知。例如，在套接字上执行部分读操作并不会使 nginx 在更多数据到达套接字之前传递重复的读通知。即使底层的 I/O 通知机制本质上是 Level-Triggered （poll、select等），nginx 也会将通知转换为 Edge-Triggered . 要使 nginx 事件通知再不同平台上的所有通知系统中保持一致，必须在处理 I/O 套接字通知或调用该套接字上的任何 I/O 函数之后调用 **ngx_handle_read_event(rev, flags)** 和 **ngx_handle_write_event(wev, lowat)** 函数。通常，这些函数在每个读事件或写事件处理程序结束时调用一次。
 
-### Timer events
+## Timer events
 
 ---
 
@@ -45,7 +48,7 @@ nginx 刚启动时，在 wait for events connections 处打开80或443端口，�
 
 函数 **ngx_add_timer(ev, timer)** 为事件设置超时，**ngx_del_timer(ev)** 删除先前设置的超时。全局超时红黑树 **ngx_event_timer_rbtree()** 储存当前设置的所有超时。树中的关键类型为 **ngx_msec_t** ，表示事件发生的时间。红黑树的结构支持快速插入和删除操作，以及访问最近的超时，nginx 使用超时来确定等待 I/O 事件和过期超时事件的时间。
 
-### Posted events
+## Posted events
 
 ---
 
@@ -96,13 +99,15 @@ ngx_my_read_handler(ngx_event_t *rev)
 ```
 
 
-### Event loop
+## Event loop
 
 ---
 
 除了 nginx 主进程，所有 nginx 进程都执行 I/O ，因此都有一个event loop事件循环。nginx 主进程花费大部分时间在 **sigsuspend()** 调用中，等待信号到达。nginx 事件循环在 **ngx_process_events_and_timers()** 函数中实现，这个函数反复被调用，直到进程退出。
 
-![event_process_cycle](./images/event_process_cycle.png)
+<img src="./images/event_process_cycle.png" width = "500" height = "350" alt="event_process_cycle" align=center />
+
+
 
 事件循环有以下几个阶段：
 
@@ -112,30 +117,4 @@ ngx_my_read_handler(ngx_event_t *rev)
 4. 调用 **ngx_event_process_posted()** 处理发布的事件。该函数重复地从发布的事件队列中删除第一个元素，并调用该元素的处理程序，直到队列为空。
 
 所有的 nginx 进程也都处理信号。信号处理程序只设置调用 **ngx_process_events_and_timers()** 之后已被检查的全局变量。
-
-## Process
-
----
-
-nginx 中有数种类型的进程。进程的类型保存在 **ngx_process** 全局变量中，如下所示：
-
-- NGX_PROCESS_MASTER —— 主进程，读取 NGINX 配置，创建 cycles，启动并控制子进程。不执行任何 I/O ，只对信号做出响应。它的 cycle 函数是 **ngx_process_cycle()** .
-- NGX_PROCESS_WORKER —— 辅助进程，处理客户端连接，由主进程启动，并对其信号和通道命令做出响应。它的 cycle 函数是 **ngx_worker_process_cycle()** . 可以由 **worker_processes** 指令配置多个 worker 进程。
-- NGX_PROCESS_SINGLE  —— 只存在于 **master_process off** 模式下的单个进程，并且是该模式下运行的的唯一进程。它会像主进程一样创建循环cycles并像辅助进程一样处理客户端连接。它的循环函数是 **ngx_single_process_cycle()** 。
-- NGX_PROCESS_HELPER —— 帮助进程，目前有两种类型：缓存管理器和缓存加载器。这两者的 cycle 函数都是 **ngx_cache_manager_process_cycle()** 。
-
-nginx 进程处理以下信号：
-
-- NGX_SHUTDOWN_SIGNAL
-- NGX_TERMINATE_SIGNAL
-- NGX_RECONFIGURE_SIGNAL
-- NGX_REOPEN_SIGNAL
-- NGX_CHANGEBIN_SIGNAL
-
-
-虽然所有 nginx 辅助进程都能够接收并正确处理 POSIX 信号，但主进程不使用标准 **kill()** 系统调用将信号传递给辅助进程和辅助进程。相反，nginx 使用进程间套接字对，它允许在所有 nginx 进程之间发送消息。但是，目前消息仅从主服务器发送给其子服务器。信息传递的是标准信号。
-
-## Threads 
-
----
 
