@@ -1219,7 +1219,7 @@ Nginx则不然，它在接收到完整的客户端请求（如1GB的文件）后
 
 
 
-##  3.2 Nginx负载均衡模块 ngx_http_upstream_module
+##  3.2 Nginx负载均衡模块ngx_http_upstream_module
 
 ngx_http_upstream_module模块用于定义可以被 proxy_pass、fastcgi_pass、uwsgi_pass、scgi_pass 以及memcached_pass 等指令引用的服务器群。
 
@@ -1447,5 +1447,807 @@ proxy_next_upstream的参数用来说明在哪些情况下会继续选择下一�
 
 
 
+# 第四章 进程管理模块
+
+---
+
+## 4.1 nginx 进程简介
+
+为了保证 nginx 的高可用高可靠，nginx 被设计成多进程结构。多进程相对于多线程之所以能够保证高可用与高可靠是因为进程间地址空间是独立的，进程间的任务不会相互影响，相对多线程更加耗费 CPU 资源。而多线程共享一个进程的地址空间，其中一个线程任务失败会影响到其它线程任务。
+
+### 4.1.1 nginx 进程类型
+
+nginx 中有数种类型的进程。进程的类型保存在 **ngx_process** 全局变量中，介绍如下：
+
+- NGX_PROCESS_MASTER —— 主进程，读取 NGINX 配置，创建 cycles，启动并控制子进程。不执行任何 I/O ，只对信号做出响应。它的 cycle 函数是 ngx_process_cycle() .
+- NGX_PROCESS_WORKER —— 辅助进程，处理客户端连接，由主进程启动，并对其信号和通道命令做出响应。它的 cycle 函数是 ngx_worker_process_cycle() . 可以由 worker_processes 指令配置多个 worker 进程。
+- NGX_PROCESS_SINGLE  —— 只存在于 master_process off 模式下的单个进程，并且是该模式下运行的的唯一进程。它会像主进程一样创建循环cycles并像辅助进程一样处理客户端连接。它的循环函数是 ngx_single_process_cycle() 。
+- NGX_PROCESS_HELPER —— 帮助进程，目前有两种类型：缓存管理器和缓存加载器。这两者的 cycle 函数都是 ngx_cache_manager_process_cycle() 。
+
+<img src="./images/process_architecture.png" width = "750" height = "250" alt="process_architecture" align=center />
+
+### 4.1.2 nginx 进程中的信号量
+
+nginx 进程处理以下信号：
+
+- NGX_SHUTDOWN_SIGNAL （在大多数系统上为 SIGQUIT） —— 平滑地关闭。在接收到这个信号之后，master 进程向所有子进程发送一个关闭信号。当没有子进程留下时，主进程销毁循环池并退出。当 worker 进程接收到这个信号，关闭所有监听套接字并等待，直到没有安排不可取消的事件，然后销毁循环池并退出。当缓存管理器或缓存加载器程序进程接收到这个信号之后，将立即退出。当一个进程收到这个信号时，变量 ngx_exit 将置为 1 ，并且在被处理之后立即重置。当 worker 进程处于关闭状态时，ngx_exiting 变量设置为 1 .
+- NGX_TERMINATE_SIGNAL（在大多数系统上为 SIGTERM） —— 终止。接收到此信号之后，master 进程向所有子进程发送终止信号。如果一个子进程没有在 1 s 内退出，master 进程将发送 SIGKILL 信号来终止它。当没有子进程时，master 进程销毁循环池并退出。当 worker 进程、缓存管理器进程或缓存加载器程序进程接收到此信号时，它将销毁循环池并退出。所有进程接收到这个信号时，都会将 ngx_terminate 设置为 1 .
+- NGX_NOACCEPT_SIGNAL（在大多数系统中为 SIGWINCH） —— 关闭所有的 worker 进程和 helper 进程。接收到此信号之后，master 进程关闭其子进程。如果先前启动的新的 nginx binary 退出，则再次启动旧 master 进程的子进程。当 worker 进程接收到该信号时，它将在 debug_points 指令设置的调试模式下关闭。
+- NGX_RECONFIGURE_SIGNAL（在大多数系统中为 SIGHUP） —— 重新配置。接收到这个信号之后，master 进程重新读取配置文件并根据它创建一个新的循环。如果成功创建了新的循环，则删除旧的循环并启动新的子进程。与此同时，旧的子进程接收 NGX_SHUTDOWN_SIGNAL 。在单进程模式下，nginx 创建了一个新的循环，但是保留了旧的循环直到不再有存活的连接绑定到它的客户端为止。worker 进程和 helper 进程忽略这个信号。
+- NGX_REOPEN_SIGNAL（在大多数系统中为 SIGUSR1） —— 重新打开文件。master 进程将这个信号发送给 workers，worker 进程重新打开所有与循环相关的 open_files 。
+- NGX_CHANGEBIN_SIGNAL（在大多数系统中为 SIGUSR2） —— 更改 nginx 二进制文件。master 进程启动一个新的 nginx 二进制文件，并传入所有监听套接字的列表。在“NGINX”环境变量中传递的文本格式列表由用分号分隔的描述符号组成。新的 nginx 二进制文件读取“NGINX”变量并将套接字添加到其初始周期中。其他进程忽略该信号。
+
+## 4.2 nginx 进程管理
+
+通过以上的信息我们可以得知，可以通过 master 进程、worker 进程以及命令行来管理 nginx 进程。一般情况下，我们使用信号量管理 master 进程，进而来管理和维护 worker 进程，而不直接使用发送信号量来管理 worker 进程。
+
+- master 进程主要完成以下工作：
+
+```
+1. 读取并验证配置信息
+2. 创建、绑定及关闭套接字
+3. 启动、终止及维护 worker 进程的个数
+4. 无需中止服务而重新配置工作特性
+5. 控制非中断式程序升级，启用新的二进制程序并在需要时回退至老版本
+6. 重新打开日志文件，实现日志滚动
+7. 编译嵌入式 perl 脚本
+```
+
+- worker 进程主要完成的任务：
+
+```
+1. 接收、传入并处理来自客户端的连接
+2. 提供反向代理及过滤功能
+3. nginx 任何能完成的其他任务
+```
+
+- cache loader 进程主要完成的任务：
+
+```
+1. 检查缓存存储中的缓存对象
+2. 使用缓存元数据建立内存数据库
+```
+
+- cache manager 进程的主要任务：
+
+```
+缓存的失效及过期检验
+```
 
 
+
+**使用命令行管理 nginx 进程**
+
+启动 nginx：
+
+```
+nginx
+```
+
+强制退出：
+
+```
+nginx -s stop
+```
+
+平滑退出：
+
+```
+nginx -s quit
+```
+
+重新打开日志文件：
+
+```
+nginx -s reopen
+```
+
+重新加载配置：
+
+```
+nginx -s reload
+```
+
+指定安装路径：
+
+```
+nginx -p prefix
+```
+
+指明配置文件路径：
+
+```
+nginx -c filename
+```
+
+结束所有 nginx 进程：
+
+```
+killall nginx
+```
+
+虽然 nginx 所有 worker 进程都能够接收并正确处理 POSIX 信号，但主进程不使用标准 kill() 系统调用将信号传递给 worker 进程和 helper 进程。相反，nginx 使用进程间套接字对，它允许在所有 nginx 进程之间发送消息。但是，目前消息仅从主服务器发送给其子服务器。信息传递的是标准信号。
+
+## 4.3 nginx 多进程具体实现
+
+nginx 多进程实现包括以下几个步骤：
+
+1. 启动 nginx 的多进程模式。主进程信号监听和启动工作进程。
+2. 创建和启动工作进程。工作进程数一般为 CPU 个数的 1 ~ 2 倍。
+3. fork 工作进程的子进程。启动成功，回调 ngx_worker_process_cycle
+4. 子进程回调函数。每个进程的逻辑处理就从这个方法开始。
+5. 工作进程初始化。
+6. 事件驱动核心函数，进入事件循环驱动。
+
+
+
+### 4.3.1 ngx_master_process_cycle 进入多进程模式
+
+ngx_master_process_cycle 方法主要做了两个工作：
+
+- 主进程进行信号的监听和处理
+- 开启子进程
+
+```c
+/**
+ * Nginx的多进程运行模式
+ */
+void ngx_master_process_cycle(ngx_cycle_t *cycle) {
+	char *title;
+	u_char *p;
+	size_t size;
+	ngx_int_t i;
+	ngx_uint_t n, sigio;
+	sigset_t set;
+	struct itimerval itv;
+	ngx_uint_t live;
+	ngx_msec_t delay;
+	ngx_listening_t *ls;
+	ngx_core_conf_t *ccf;
+ 
+	/* 设置能接收到的信号 */
+	sigemptyset(&set);
+	sigaddset(&set, SIGCHLD);
+	sigaddset(&set, SIGALRM);
+	sigaddset(&set, SIGIO);
+	sigaddset(&set, SIGINT);
+	sigaddset(&set, ngx_signal_value(NGX_RECONFIGURE_SIGNAL));
+	sigaddset(&set, ngx_signal_value(NGX_REOPEN_SIGNAL));
+	sigaddset(&set, ngx_signal_value(NGX_NOACCEPT_SIGNAL));
+	sigaddset(&set, ngx_signal_value(NGX_TERMINATE_SIGNAL));
+	sigaddset(&set, ngx_signal_value(NGX_SHUTDOWN_SIGNAL));
+	sigaddset(&set, ngx_signal_value(NGX_CHANGEBIN_SIGNAL));
+ 
+	if (sigprocmask(SIG_BLOCK, &set, NULL) == -1) {
+		ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
+				"sigprocmask() failed");
+	}
+ 
+	sigemptyset(&set);
+ 
+	size = sizeof(master_process);
+ 
+	for (i = 0; i < ngx_argc; i++) {
+		size += ngx_strlen(ngx_argv[i]) + 1;
+	}
+ 
+	/* 保存进程标题 */
+	title = ngx_pnalloc(cycle->pool, size);
+	if (title == NULL) {
+		/* fatal */
+		exit(2);
+	}
+ 
+	p = ngx_cpymem(title, master_process, sizeof(master_process) - 1);
+	for (i = 0; i < ngx_argc; i++) {
+		*p++ = ' ';
+		p = ngx_cpystrn(p, (u_char *) ngx_argv[i], size);
+	}
+ 
+	ngx_setproctitle(title);
+ 
+	/* 获取核心配置 ngx_core_conf_t */
+	ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
+ 
+	/* 启动工作进程 - 多进程启动的核心函数 */
+	ngx_start_worker_processes(cycle, ccf->worker_processes,
+			NGX_PROCESS_RESPAWN);
+	ngx_start_cache_manager_processes(cycle, 0);
+ 
+	ngx_new_binary = 0;
+	delay = 0;
+	sigio = 0;
+	live = 1;
+ 
+	/* 主线程循环 */
+	for (;;) {
+ 
+		/* delay用来设置等待worker推出的时间，master接受了退出信号后，
+		 * 首先发送退出信号给worker，而worker退出需要一些时间*/
+		if (delay) {
+			if (ngx_sigalrm) {
+				sigio = 0;
+				delay *= 2;
+				ngx_sigalrm = 0;
+			}
+ 
+			ngx_log_debug1(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
+					"termination cycle: %M", delay);
+ 
+			itv.it_interval.tv_sec = 0;
+			itv.it_interval.tv_usec = 0;
+			itv.it_value.tv_sec = delay / 1000;
+			itv.it_value.tv_usec = (delay % 1000) * 1000;
+ 
+			if (setitimer(ITIMER_REAL, &itv, NULL) == -1) {
+				ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
+						"setitimer() failed");
+			}
+		}
+ 
+		ngx_log_debug0(NGX_LOG_DEBUG_EVENT, cycle->log, 0, "sigsuspend");
+ 
+		/* 等待信号的到来，阻塞函数 */
+		sigsuspend(&set);
+ 
+		ngx_time_update();
+ 
+		ngx_log_debug1(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
+				"wake up, sigio %i", sigio);
+ 
+		/* 收到了SIGCHLD信号，有worker退出(ngx_reap == 1) */
+		if (ngx_reap) {
+			ngx_reap = 0;
+			ngx_log_debug0(NGX_LOG_DEBUG_EVENT, cycle->log, 0, "reap children");
+ 
+			live = ngx_reap_children(cycle);
+		}
+ 
+		if (!live && (ngx_terminate || ngx_quit)) {
+			ngx_master_process_exit(cycle);
+		}
+ 
+		/* 中止进程  */
+		if (ngx_terminate) {
+			if (delay == 0) {
+				delay = 50;
+			}
+ 
+			if (sigio) {
+				sigio--;
+				continue;
+			}
+ 
+			sigio = ccf->worker_processes + 2 /* cache processes */;
+ 
+			if (delay > 1000) {
+				ngx_signal_worker_processes(cycle, SIGKILL);
+			} else {
+				ngx_signal_worker_processes(cycle,
+						ngx_signal_value(NGX_TERMINATE_SIGNAL));
+			}
+ 
+			continue;
+		}
+ 
+		/* 退出进程 */
+		if (ngx_quit) {
+			ngx_signal_worker_processes(cycle,
+					ngx_signal_value(NGX_SHUTDOWN_SIGNAL));
+ 
+			ls = cycle->listening.elts;
+			for (n = 0; n < cycle->listening.nelts; n++) {
+				if (ngx_close_socket(ls[n].fd) == -1) {
+					ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_socket_errno,
+							ngx_close_socket_n " %V failed", &ls[n].addr_text);
+				}
+			}
+			cycle->listening.nelts = 0;
+ 
+			continue;
+		}
+ 
+		/* 收到SIGHUP信号 重新初始化配置 */
+		if (ngx_reconfigure) {
+			ngx_reconfigure = 0;
+ 
+			if (ngx_new_binary) {
+				ngx_start_worker_processes(cycle, ccf->worker_processes,
+						NGX_PROCESS_RESPAWN);
+				ngx_start_cache_manager_processes(cycle, 0);
+				ngx_noaccepting = 0;
+ 
+				continue;
+			}
+ 
+			ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "reconfiguring");
+ 
+			cycle = ngx_init_cycle(cycle);
+			if (cycle == NULL) {
+				cycle = (ngx_cycle_t *) ngx_cycle;
+				continue;
+			}
+ 
+			ngx_cycle = cycle;
+			ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx,
+					ngx_core_module);
+			ngx_start_worker_processes(cycle, ccf->worker_processes,
+					NGX_PROCESS_JUST_RESPAWN);
+			ngx_start_cache_manager_processes(cycle, 1);
+ 
+			/* allow new processes to start */
+			ngx_msleep(100);
+ 
+			live = 1;
+			ngx_signal_worker_processes(cycle,
+					ngx_signal_value(NGX_SHUTDOWN_SIGNAL));
+		}
+ 
+		/* 当ngx_noaccepting==1时，会把ngx_restart设为1，重启worker  */
+		if (ngx_restart) {
+			ngx_restart = 0;
+			ngx_start_worker_processes(cycle, ccf->worker_processes,
+					NGX_PROCESS_RESPAWN);
+			ngx_start_cache_manager_processes(cycle, 0);
+			live = 1;
+		}
+ 
+		/* 收到SIGUSR1信号，重新打开log文件 */
+		if (ngx_reopen) {
+			ngx_reopen = 0;
+			ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "reopening logs");
+			ngx_reopen_files(cycle, ccf->user);
+			ngx_signal_worker_processes(cycle,
+					ngx_signal_value(NGX_REOPEN_SIGNAL));
+		}
+ 
+		/* SIGUSER2，热代码替换 */
+		if (ngx_change_binary) {
+			ngx_change_binary = 0;
+			ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "changing binary");
+			ngx_new_binary = ngx_exec_new_binary(cycle, ngx_argv);
+		}
+ 
+		/* 收到SIGWINCH信号不在接受请求，worker退出，master不退出 */
+		if (ngx_noaccept) {
+			ngx_noaccept = 0;
+			ngx_noaccepting = 1;
+			ngx_signal_worker_processes(cycle,
+					ngx_signal_value(NGX_SHUTDOWN_SIGNAL));
+		}
+	}
+}
+```
+
+
+
+### 4.3.2 ngx_start_worker_process 创建工作进程
+
+- 通过循环创建 N 个子进程，每个子进程都有独立的内存空间。
+- 子进程的个数由 nginx 的配置：ccf -> worker_processes 决定
+
+```c
+/**
+ * 创建工作进程
+ */
+static void ngx_start_worker_processes(ngx_cycle_t *cycle, ngx_int_t n,
+		ngx_int_t type) {
+	ngx_int_t i;
+	ngx_channel_t ch;
+ 
+	ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "start worker processes");
+ 
+	ngx_memzero(&ch, sizeof(ngx_channel_t));
+ 
+	ch.command = NGX_CMD_OPEN_CHANNEL;
+ 
+	/* 循环创建工作进程  默认ccf->worker_processes=8个进程，根据CPU个数决定   */
+	for (i = 0; i < n; i++) {
+ 
+		/* 打开工作进程  （ngx_worker_process_cycle 回调函数，主要用于处理每个工作线程）*/
+		ngx_spawn_process(cycle, ngx_worker_process_cycle,
+				(void *) (intptr_t) i, "worker process", type);
+ 
+		ch.pid = ngx_processes[ngx_process_slot].pid;
+		ch.slot = ngx_process_slot;
+		ch.fd = ngx_processes[ngx_process_slot].channel[0];
+ 
+		ngx_pass_open_channel(cycle, &ch);
+	}
+}
+```
+
+
+
+### 4.3.3 ngx_spawn_process  fork 工作进程
+
+ngx_spawn_process 方法主要用于 fork 出各个工作进程。代码如下：
+
+```c
+    /* fork 一个子进程 */
+    pid = fork();
+ 
+    switch (pid) {
+ 
+    case -1:
+        ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
+                      "fork() failed while spawning \"%s\"", name);
+        ngx_close_channel(ngx_processes[s].channel, cycle->log);
+        return NGX_INVALID_PID;
+ 
+    case 0:
+    	/* 如果pid fork成功，则调用 ngx_worker_process_cycle方法 */
+        ngx_pid = ngx_getpid();
+        proc(cycle, data);
+        break;
+ 
+    default:
+        break;
+    }
+```
+
+
+
+### 4.3.4 ngx_worker_process_cycle 子进程的回调函数
+
+- ngx_worker_process_cycle 是子进程的回调函数，所有子进程的工作从这个方法开始。
+- nginx 的进程最终也是有事件驱动的，所以这个方法中，最终会调用 ngx_process_events_and_timers 事件驱动的核心函数。
+
+```c
+/**
+ * 子进程 回调函数
+ * 每个进程的逻辑处理就从这个方法开始
+ */
+static void ngx_worker_process_cycle(ngx_cycle_t *cycle, void *data) {
+	ngx_int_t worker = (intptr_t) data;
+ 
+	ngx_process = NGX_PROCESS_WORKER;
+	ngx_worker = worker;
+ 
+	/* 工作进程初始化 */
+	ngx_worker_process_init(cycle, worker);
+ 
+	ngx_setproctitle("worker process");
+ 
+	/* 进程循环 */
+	for (;;) {
+ 
+		/* 判断是否是退出的状态，如果退出，则需要清空socket连接句柄 */
+		if (ngx_exiting) {
+			ngx_event_cancel_timers();
+ 
+			if (ngx_event_timer_rbtree.root
+					== ngx_event_timer_rbtree.sentinel) {
+				ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "exiting");
+ 
+				ngx_worker_process_exit(cycle);
+			}
+		}
+ 
+		ngx_log_debug0(NGX_LOG_DEBUG_EVENT, cycle->log, 0, "worker cycle");
+ 
+		/* 事件驱动核心函数 */
+		ngx_process_events_and_timers(cycle);
+ 
+		if (ngx_terminate) {
+			ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "exiting");
+ 
+			ngx_worker_process_exit(cycle);
+		}
+ 
+		/* 如果是退出 */
+		if (ngx_quit) {
+			ngx_quit = 0;
+			ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
+					"gracefully shutting down");
+			ngx_setproctitle("worker process is shutting down");
+ 
+			if (!ngx_exiting) {
+				ngx_exiting = 1;
+				ngx_close_listening_sockets(cycle);
+				ngx_close_idle_connections(cycle);
+			}
+		}
+ 
+		/* 如果是重启 */
+		if (ngx_reopen) {
+			ngx_reopen = 0;
+			ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "reopening logs");
+			ngx_reopen_files(cycle, -1);
+		}
+	}
+}
+```
+
+
+
+### 4.3.5 ngx_worker_process_init 工作进程初始化
+
+```c
+/**
+ * 工作进程初始化
+ */
+static void ngx_worker_process_init(ngx_cycle_t *cycle, ngx_int_t worker) {
+	sigset_t set;
+	ngx_int_t n;
+	ngx_uint_t i;
+	ngx_cpuset_t *cpu_affinity;
+	struct rlimit rlmt;
+	ngx_core_conf_t *ccf;
+	ngx_listening_t *ls;
+ 
+	/* 配置环境变量 */
+	if (ngx_set_environment(cycle, NULL) == NULL) {
+		/* fatal */
+		exit(2);
+	}
+ 
+	/* 获取核心配置 */
+	ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
+ 
+	if (worker >= 0 && ccf->priority != 0) {
+		if (setpriority(PRIO_PROCESS, 0, ccf->priority) == -1) {
+			ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
+					"setpriority(%d) failed", ccf->priority);
+		}
+	}
+ 
+	if (ccf->rlimit_nofile != NGX_CONF_UNSET) {
+		rlmt.rlim_cur = (rlim_t) ccf->rlimit_nofile;
+		rlmt.rlim_max = (rlim_t) ccf->rlimit_nofile;
+ 
+		if (setrlimit(RLIMIT_NOFILE, &rlmt) == -1) {
+			ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
+					"setrlimit(RLIMIT_NOFILE, %i) failed", ccf->rlimit_nofile);
+		}
+	}
+ 
+	if (ccf->rlimit_core != NGX_CONF_UNSET) {
+		rlmt.rlim_cur = (rlim_t) ccf->rlimit_core;
+		rlmt.rlim_max = (rlim_t) ccf->rlimit_core;
+ 
+		if (setrlimit(RLIMIT_CORE, &rlmt) == -1) {
+			ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
+					"setrlimit(RLIMIT_CORE, %O) failed", ccf->rlimit_core);
+		}
+	}
+ 
+	/* 设置UID GROUPUID */
+	if (geteuid() == 0) {
+		if (setgid(ccf->group) == -1) {
+			ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,
+					"setgid(%d) failed", ccf->group);
+			/* fatal */
+			exit(2);
+		}
+ 
+		if (initgroups(ccf->username, ccf->group) == -1) {
+			ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,
+					"initgroups(%s, %d) failed", ccf->username, ccf->group);
+		}
+ 
+		if (setuid(ccf->user) == -1) {
+			ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,
+					"setuid(%d) failed", ccf->user);
+			/* fatal */
+			exit(2);
+		}
+	}
+ 
+	/* 设置CPU亲和性 */
+	if (worker >= 0) {
+		cpu_affinity = ngx_get_cpu_affinity(worker);
+ 
+		if (cpu_affinity) {
+			ngx_setaffinity(cpu_affinity, cycle->log);
+		}
+	}
+ 
+#if (NGX_HAVE_PR_SET_DUMPABLE)
+ 
+	/* allow coredump after setuid() in Linux 2.4.x */
+ 
+	if (prctl(PR_SET_DUMPABLE, 1, 0, 0, 0) == -1) {
+		ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
+				"prctl(PR_SET_DUMPABLE) failed");
+	}
+ 
+#endif
+ 
+	/* 切换工作目录 */
+	if (ccf->working_directory.len) {
+		if (chdir((char *) ccf->working_directory.data) == -1) {
+			ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
+					"chdir(\"%s\") failed", ccf->working_directory.data);
+			/* fatal */
+			exit(2);
+		}
+	}
+ 
+	sigemptyset(&set);
+ 
+	/* 清除所有信号 */
+	if (sigprocmask(SIG_SETMASK, &set, NULL) == -1) {
+		ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
+				"sigprocmask() failed");
+	}
+ 
+	srandom((ngx_pid << 16) ^ ngx_time());
+ 
+	/*
+	 * disable deleting previous events for the listening sockets because
+	 * in the worker processes there are no events at all at this point
+	 */
+	/* 清除sokcet的监听 */
+	ls = cycle->listening.elts;
+	for (i = 0; i < cycle->listening.nelts; i++) {
+		ls[i].previous = NULL;
+	}
+ 
+	/* 对模块初始化  */
+	for (i = 0; cycle->modules[i]; i++) {
+		if (cycle->modules[i]->init_process) {
+			if (cycle->modules[i]->init_process(cycle) == NGX_ERROR) {
+				/* fatal */
+				exit(2);
+			}
+		}
+	}
+ 
+	/**
+	 *将其他进程的channel[1]关闭，自己的channel[0]关闭
+	 */
+	for (n = 0; n < ngx_last_process; n++) {
+ 
+		if (ngx_processes[n].pid == -1) {
+			continue;
+		}
+ 
+		if (n == ngx_process_slot) {
+			continue;
+		}
+ 
+		if (ngx_processes[n].channel[1] == -1) {
+			continue;
+		}
+ 
+		if (close(ngx_processes[n].channel[1]) == -1) {
+			ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
+					"close() channel failed");
+		}
+	}
+ 
+	if (close(ngx_processes[ngx_process_slot].channel[0]) == -1) {
+		ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
+				"close() channel failed");
+	}
+ 
+#if 0
+	ngx_last_process = 0;
+#endif
+ 
+	/**
+	 * 给ngx_channel注册一个读事件处理函数
+	 */
+	if (ngx_add_channel_event(cycle, ngx_channel, NGX_READ_EVENT,
+			ngx_channel_handler) == NGX_ERROR) {
+		/* fatal */
+		exit(2);
+	}
+}
+```
+
+
+
+# 第五章 事件循环模块
+
+nginx中的事件对象 **ngx_event_t** 提供了一种通知特定事件已经发生的机制。
+
+**ngx_event_t** 中的字段包括：
+
+- data —— 事件处理程序中使用的任意事件上下文，通常作为指向与该事件相关的连接的指针。
+- handler —— 事件发生时调用的回调函数。
+- write —— 指示写入事件的标志。（没有表示读取事件的标志）
+- active —— 指示事件注册为接收I/O通知的标志，通常来自epoll、kqueue、poll等通知机制。
+- ready —— 指示事件已经接收到I/O通知的标志。
+- delayed —— 指示由于速率限制I/O延迟的标志。
+- timer —— 红黑树节点，用于将事件插入到计时器树中。
+- timer_set —— 指示计时器已设置且未过期的标志。
+- timeout —— 指示计时器已过期的标志。
+- eof —— 指示读取数据时发生EOF的标志。
+- pending_eof —— 指示EOF在套接字上挂起的标志，即使在此之前可能有一些数据可用。通过EPOLLRDHUP epoll事件或EV_EOF kqueue标志传递。
+- error —— 指示在读事件或写事件期间发生错误的标志。
+- cancelable —— 定时器事件标志，指示在关闭辅助器时应忽略该事件。graceful worker shutdown 被延迟，直到没有不可取消的计时器事件被安排。
+- posted —— 指示将事件发送到队列的标志。
+- queue —— 用于将时间发送到队列的队列节点。
+
+nginx 刚启动时，在 wait for events connections 处打开80或443端口，等待新的事件进来，比如新的客户端连接请求（epoll wait），这时 nginx 处于 sleep 状态。当操作系统接收到了一个建立TCP连接的握手报文并且处理完握手流程之后，操作系统就会通知 epoll wait ，告诉他现在可以往下走了，同时唤醒worker进程。处理完一个事件之后，操作系统会把他准备好的事件放到事件队列中，从这个事件队列可以获取到一个要处理的事件，从队列中取出来，然后再开始处理事件。
+
+<img src="./images/nginx_event_loop.png" width = "500" height = "400" alt="nginx_event_loop.png" align=center />
+
+
+
+
+
+## 5.1 I/O events
+
+通过调用 **ngx_get_connection()** 函数获得的每个连接都有两个附加事件：**c->read** 和 **c->write** ，它们用于接收套接字已经准备好进行读写的通知。所有这些事件都在 Edge-Triggered 模式下运行，这意味着它们只在套接字状态变更时触发通知。例如，在套接字上执行部分读操作并不会使 nginx 在更多数据到达套接字之前传递重复的读通知。即使底层的 I/O 通知机制本质上是 Level-Triggered （poll、select等），nginx 也会将通知转换为 Edge-Triggered . 要使 nginx 事件通知再不同平台上的所有通知系统中保持一致，必须在处理 I/O 套接字通知或调用该套接字上的任何 I/O 函数之后调用 **ngx_handle_read_event(rev, flags)** 和 **ngx_handle_write_event(wev, lowat)** 函数。通常，这些函数在每个读事件或写事件处理程序结束时调用一次。
+
+
+
+## 5.2 Timer events
+
+可以将事件设置为在超时过期时发送通知。事件使用的计时器从过去截断为 **ngx_msec_t** 类型的某个未指定点开始计算毫秒。它当前的值可以从 **ngx_current_msec** 变量获得。
+
+函数 **ngx_add_timer(ev, timer)** 为事件设置超时，**ngx_del_timer(ev)** 删除先前设置的超时。全局超时红黑树 **ngx_event_timer_rbtree()** 储存当前设置的所有超时。树中的关键类型为 **ngx_msec_t** ，表示事件发生的时间。红黑树的结构支持快速插入和删除操作，以及访问最近的超时，nginx 使用超时来确定等待 I/O 事件和过期超时事件的时间。
+
+
+
+## 5.3 Posted events
+
+---
+
+事件被发布意味着它的处理程序将在当前事件循环迭代的某个时刻被调用。发布事件可以简化代码和避免堆栈溢出。已发布的事件保存在发布队列（post queue）中。**ngx_post_event(ev, q)** 将事件 ev 发送到 post 队列 q 。**ngx_delete_posted_event(ev)** 从当前发送到的队列中删除事件 ev 。通常，事件被发送到 **ngx_posted_events** 队列中，该队列会在事件循环（event loop）的后期处理，在处理了所有的 I/O 事件和计时器事件之后。函数 **ngx_event_process_posted()** 被调用来处理事件队列。它调用事件处理程序，直到队列不为空。这意味着发布的事件处理程序可以发布更多要在当前事件循环迭代中处理的事件。
+
+一个例子：
+```c
+void
+ngx_my_connection_read(ngx_connection_t *c)
+{
+    ngx_event_t  *rev;
+
+    rev = c->read;
+
+    ngx_add_timer(rev, 1000);
+
+    rev->handler = ngx_my_read_handler;
+
+    ngx_my_read(rev);
+}
+
+
+void
+ngx_my_read_handler(ngx_event_t *rev)
+{
+    ssize_t            n;
+    ngx_connection_t  *c;
+    u_char             buf[256];
+
+    if (rev->timedout) { /* timeout expired */ }
+
+    c = rev->data;
+
+    while (rev->ready) {
+        n = c->recv(c, buf, sizeof(buf));
+
+        if (n == NGX_AGAIN) {
+            break;
+        }
+
+        if (n == NGX_ERROR) { /* error */ }
+
+        /* process buf */
+    }
+
+    if (ngx_handle_read_event(rev, 0) != NGX_OK) { /* error */ }
+}
+```
+
+
+
+## 5.4 Event loop
+
+除了 nginx 主进程，所有 nginx 进程都执行 I/O ，因此都有一个event loop事件循环。nginx 主进程花费大部分时间在 **sigsuspend()** 调用中，等待信号到达。nginx 事件循环在 **ngx_process_events_and_timers()** 函数中实现，这个函数反复被调用，直到进程退出。
+
+<img src="./images/event_process_cycle.png" width = "500" height = "350" alt="event_process_cycle" align=center />
+
+
+
+事件循环有以下几个阶段：
+
+1. 调用 **ngx_event_find_timer()** 查找最接近到期的超时。这个函数找到计时器树中最左边的节点，并返回该节点到期的毫秒数。
+2. 使用处理程序来处理 I/O 事件。这个处理程序是由 nginx 配置选择的特定的事件通知机制。这个处理程序至少等待一个 I/O 事件发生，但是只等到下一次超时过期。当发生一个读或写事件时，将设置 **ready** 标志，并且调用事件的处理程序。在 Linux 中，通常使用 **ngx_epoll_process_events()** 处理程序，该程序调用 **epoll_wait()** 来等待 I/O 事件。
+3. 调用 **ngx_event_expire_timers()** 来作废计时器。从最左边的元素到最右边的元素迭代计时器树，直到找到未过期的超时。对每个过期的节点，设置 **timeout** 事件标志，重置 **timer_set** 标志，调用事件处理程序。
+4. 调用 **ngx_event_process_posted()** 处理发布的事件。该函数重复地从发布的事件队列中删除第一个元素，并调用该元素的处理程序，直到队列为空。
+
+所有的 nginx 进程也都处理信号。信号处理程序只设置调用 **ngx_process_events_and_timers()** 之后已被检查的全局变量。
